@@ -6,36 +6,48 @@ class LidarrFieldsPlugin(BeetsPlugin):
   def __init__(self):
     super(LidarrFieldsPlugin, self).__init__()
     
-    self.mb_releasegroupid = None
-    self.releasegroupartist = None
-    self.mb_albumid = None
-    self.lidarralbum = None
-    self.mb_releasegroupid2 = None
-    self.audiodisctotal = None
+    self.releasegroupartists = {}
+    self.lidarralbums = {}
+    self.audiodisctotals = {}
     
     self.template_fields['releasegroupartist'] = self._tmpl_releasegroupartist
     self.template_fields['lidarralbum'] = self._tmpl_lidarralbum
     self.template_fields['audiodisctotal'] = self._tmpl_audiodisctotal
 
+  @staticmethod
+  def _album_key(item):
+    """Return a stable cache key for albums and singleton items."""
+    if item.album_id is not None:
+      return ('album', item.album_id)
+    if item.id is not None:
+      return ('item', item.id)
+    return ('object', id(item))
+
   def _tmpl_releasegroupartist(self, item):
     if item.singleton:
       return None
-    
-    if item.mb_releasegroupid != self.mb_releasegroupid:
+
+    album_key = self._album_key(item)
+    if album_key not in self.releasegroupartists:
       self._log.debug('Finding releasegrouparitst for ' + item.albumartist + ' - ' + item.album)
-      try:
+      if not item.mb_releasegroupid:
+        releasegroupartist = item.albumartist
+      else:
+        try:
           rel = musicbrainzngs.get_release_group_by_id(item.mb_releasegroupid, ['artist-credits'])
-          self.releasegroupartist = rel['release-group']['artist-credit'][0]['artist']['name']
-          self.mb_releasegroupid = item.mb_releasegroupid
-      except:
-          self.releasegroupartist = item.albumartist
-          self.mb_releasegroupid = item.mb_releasegroupid
+          releasegroupartist = rel['release-group']['artist-credit'][0]['artist']['name']
+        except Exception:
+          releasegroupartist = item.albumartist
           self._log.debug('No MB Credits found for ' + item.albumartist + ' - ' + item.album)
-    return self.releasegroupartist
+
+      self.releasegroupartists[album_key] = releasegroupartist
+
+    return self.releasegroupartists[album_key]
 
   
   def _tmpl_lidarralbum(self, item):
-    if item.mb_albumid != self.mb_albumid or item.singleton:
+    album_key = self._album_key(item)
+    if album_key not in self.lidarralbums:
       sp_rep = {'\\.$': ''}
       sp_rep_clean = {'.': ''}
       sp_regexp = re.compile('|'.join(sp_rep.keys()))
@@ -43,17 +55,16 @@ class LidarrFieldsPlugin(BeetsPlugin):
       
       rep = {'/': '+', ':': '-', '?': '!'}
       regexp = re.compile('|'.join(map(re.escape, rep)))
-      self.lidarralbum = regexp.sub(lambda match: rep[match.group(0)], temp_lidarralbum)
-      
-      self.mb_albumid = item.mb_albumid
+      self.lidarralbums[album_key] = regexp.sub(lambda match: rep[match.group(0)], temp_lidarralbum)
     
-    return self.lidarralbum
+    return self.lidarralbums[album_key]
 
   def _tmpl_audiodisctotal(self, item):
     if item.singleton:
       return None
-    
-    if item.mb_releasegroupid != self.mb_releasegroupid2:
+
+    album_key = self._album_key(item)
+    if album_key not in self.audiodisctotals:
       total = 0
       
       if item.disctotal == 1:
@@ -71,10 +82,7 @@ class LidarrFieldsPlugin(BeetsPlugin):
           counted.append(albumitem.disc)
           if len(counted) == item.disctotal:
             break
-      
-      if total == 1:
-        return None
-      self.audiodisctotal = str(total).zfill(2)
-      self.mb_releasegroupid2 = item.mb_releasegroupid
-    
-    return self.audiodisctotal
+
+      self.audiodisctotals[album_key] = None if total == 1 else str(total).zfill(2)
+
+    return self.audiodisctotals[album_key]
