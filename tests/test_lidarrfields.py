@@ -1,5 +1,4 @@
 import unittest
-from unittest import mock
 
 from beetsplug.lidarrfields import LidarrFieldsPlugin
 
@@ -15,10 +14,12 @@ class FakeAlbum(object):
 class FakeItem(object):
   def __init__(self, item_id, album_id, artist, album, releasegroup_id='',
                album_id_external='', singleton=False, disc=1, disctotal=1,
-               media='Digital Media'):
+               media='Digital Media', albumartists=None, db=None):
     self.id = item_id
     self.album_id = album_id
     self.albumartist = artist
+    self.albumartists = albumartists or []
+    self._db = db
     self.album = album
     self.mb_releasegroupid = releasegroup_id
     self.mb_albumid = album_id_external
@@ -32,18 +33,51 @@ class FakeItem(object):
     return self._album
 
 
+class FakeLibraryAlbum(object):
+  def __init__(self, artist):
+    self.albumartist = artist
+    self.albumartists = [artist]
+
+
+class FakeLibrary(object):
+  def __init__(self, albums):
+    self._albums = albums
+
+  def albums(self, query):
+    assert query == 'data_source:MusicBrainz'
+    return self._albums
+
+
 class LidarrFieldsPluginTest(unittest.TestCase):
   def setUp(self):
     self.plugin = LidarrFieldsPlugin()
 
-  @mock.patch('beetsplug.lidarrfields.musicbrainzngs.get_release_group_by_id')
-  def test_missing_releasegroup_id_does_not_leak_artist(self, get_release_group):
+  def test_missing_releasegroup_id_does_not_leak_artist(self):
     first = FakeItem(1, 10, 'Artist A', 'Album A')
     second = FakeItem(2, 11, 'Artist B', 'Album B')
 
     self.assertEqual(self.plugin._tmpl_releasegroupartist(first), 'Artist A')
     self.assertEqual(self.plugin._tmpl_releasegroupartist(second), 'Artist B')
-    self.assertFalse(get_release_group.called)
+
+  def test_featured_artists_file_under_the_first_artist(self):
+    tagged = FakeItem(1, 10, 'Gareth Emery feat. Krewella', 'A',
+                      albumartists=['Gareth Emery', 'Krewella'])
+    untagged = FakeItem(2, 11, 'Lost Frequencies ft. Axel Ehnstr\u00f6m', 'B')
+
+    self.assertEqual(self.plugin._tmpl_releasegroupartist(tagged),
+                     'Gareth Emery')
+    self.assertEqual(self.plugin._tmpl_releasegroupartist(untagged),
+                     'Lost Frequencies')
+
+  def test_other_sources_take_the_musicbrainz_spelling(self):
+    db = FakeLibrary([FakeLibraryAlbum("Blackmore\u2019s Night"),
+                      FakeLibraryAlbum('BABYMETAL')])
+    apostrophe = FakeItem(1, 10, "Blackmore's Night", 'A', db=db)
+    case = FakeItem(2, 11, 'Babymetal', 'B', albumartists=['Babymetal'], db=db)
+
+    self.assertEqual(self.plugin._tmpl_releasegroupartist(apostrophe),
+                     'Blackmore\u2019s Night')
+    self.assertEqual(self.plugin._tmpl_releasegroupartist(case), 'BABYMETAL')
 
   def test_missing_album_id_does_not_leak_title(self):
     first = FakeItem(1, 10, 'Artist A', 'First Album.')
