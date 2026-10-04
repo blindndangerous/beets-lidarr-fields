@@ -15,15 +15,23 @@ import unicodedata
 
 from beets.plugins import BeetsPlugin
 
-# A featured-artist suffix on a credit, e.g. "Gareth Emery feat. Krewella".
-FEAT_RE = re.compile(r"\s+(?:feat\.?|ft\.?|featuring)\s.*$", re.IGNORECASE)
+# Guests on a credit file under the main act: "A feat. B", "A with B",
+# "A presents B" all belong to A.
+GUEST_RE = re.compile(r"\s+(?:feat\.?|ft\.?|featuring|with|presents)\s.*$", re.IGNORECASE)
+
+# Curly quotes and the Unicode hyphen fold to their plain ASCII forms.
+_FOLD = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"', "‐": "-"})
 
 
 def _fold(name):
-    """Compare artist names ignoring case and apostrophe style."""
-    return (
-        unicodedata.normalize("NFKC", name).replace("’", "'").casefold()
-    )
+    """Compare artist names ignoring case and quote or hyphen style."""
+    return unicodedata.normalize("NFKC", name).translate(_FOLD).casefold()
+
+
+def _credited(credit, names):
+    """The artists of `names` still in `credit` once guests are removed, in order."""
+    main = _fold(GUEST_RE.sub("", credit or ""))
+    return [name for name in names if name and _fold(name) in main]
 
 
 VIDEO_MEDIA = {
@@ -45,7 +53,8 @@ class LidarrFieldsPlugin(BeetsPlugin):
         self._release_group_artists = {}
         self._lidarr_albums = {}
         self._audio_disc_totals = {}
-        self._canonical_names = None
+        self._names = None
+        self._credits = None
 
         self.template_fields["releasegroupartist"] = (
             self._tmpl_releasegroupartist
@@ -63,40 +72,54 @@ class LidarrFieldsPlugin(BeetsPlugin):
         return ("object", id(item))
 
     def _tmpl_releasegroupartist(self, item):
+        """The artist folder: who the album is credited to, minus guests.
+
+        A solo album files under its artist; a collaboration ("Apollo Brown
+        & Locksmith") gets its own folder named after the credit.
+        """
         if item.singleton:
             return None
 
         key = self._album_key(item)
-        if key in self._release_group_artists:
-            return self._release_group_artists[key]
+        if key not in self._release_group_artists:
+            credit = GUEST_RE.sub("", item.albumartist or "").strip()
+            names = _credited(item.albumartist, item.albumartists or []) or [credit]
+            self._release_group_artists[key] = self._folder_name(item, credit, names)
+        return self._release_group_artists[key]
 
-        # The first credited artist, as Lidarr files it. albumartists holds
-        # the canonical names; albums from other sources may leave it empty,
-        # so fall back to the credit with any featured artist removed.
-        names = item.albumartists
-        artist = names[0] if names else FEAT_RE.sub("", item.albumartist)
-        artist = self._canonical(item, artist)
+    def _folder_name(self, item, credit, names):
+        """Spell the folder the way MusicBrainz-tagged albums do.
 
-        self._release_group_artists[key] = artist
-        return artist
-
-    def _canonical(self, item, name):
-        """The spelling MusicBrainz-tagged albums use for this artist.
-
-        Spotify, Discogs and Bandcamp spell some artists with different case
-        or apostrophes ("Babymetal", "Blackmore's Night"), which would give
-        the same artist a second folder.
+        Spotify, Discogs and Bandcamp spell some artists differently
+        ("Babymetal", '"Weird Al"' with straight quotes) and join
+        collaborations differently ("AK, Sublab", "A + B"), which would give
+        the same act a second folder.  A collaboration MusicBrainz has never
+        credited is joined with " & ".
         """
-        if self._canonical_names is None:
-            lib = getattr(item, "_db", None)
-            if lib is None:
-                return name
-            self._canonical_names = {}
-            for album in lib.albums("data_source:MusicBrainz"):
-                names = album.albumartists or [album.albumartist]
-                if names[0]:
-                    self._canonical_names.setdefault(_fold(names[0]), names[0])
-        return self._canonical_names.get(_fold(name), name)
+        if not self._load_spellings(item):
+            return credit
+        if len(names) == 1:
+            return self._names.get(_fold(names[0]), names[0])
+        known = self._credits.get(tuple(_fold(name) for name in names))
+        return known or " & ".join(self._names.get(_fold(name), name) for name in names)
+
+    def _load_spellings(self, item):
+        """Read every MusicBrainz album's artist spellings once per run."""
+        if self._names is not None:
+            return True
+        lib = getattr(item, "_db", None)
+        if lib is None:
+            return False
+        self._names, self._credits = {}, {}
+        for album in lib.albums("data_source:MusicBrainz"):
+            names = _credited(album.albumartist, album.albumartists or []) or [album.albumartist]
+            for name in names:
+                if name:
+                    self._names.setdefault(_fold(name), name)
+            if len(names) > 1:
+                credit = GUEST_RE.sub("", album.albumartist).strip()
+                self._credits.setdefault(tuple(_fold(name) for name in names), credit)
+        return True
 
     def _tmpl_lidarralbum(self, item):
         key = self._album_key(item)

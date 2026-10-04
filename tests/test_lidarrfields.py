@@ -34,9 +34,9 @@ class FakeItem(object):
 
 
 class FakeLibraryAlbum(object):
-  def __init__(self, artist):
+  def __init__(self, artist, artists=None):
     self.albumartist = artist
-    self.albumartists = [artist]
+    self.albumartists = artists or [artist]
 
 
 class FakeLibrary(object):
@@ -78,6 +78,35 @@ class LidarrFieldsPluginTest(unittest.TestCase):
     self.assertEqual(self.plugin._tmpl_releasegroupartist(apostrophe),
                      'Blackmore\u2019s Night')
     self.assertEqual(self.plugin._tmpl_releasegroupartist(case), 'BABYMETAL')
+
+  def test_collaborations_keep_their_own_folder(self):
+    item = FakeItem(1, 10, 'Apollo Brown & Locksmith', 'No Question',
+                    albumartists=['Apollo Brown', 'Locksmith'])
+    guest = FakeItem(2, 11, 'Above & Beyond presents OceanLab', 'B',
+                     albumartists=['Above & Beyond', 'OceanLab'])
+
+    self.assertEqual(self.plugin._tmpl_releasegroupartist(item),
+                     'Apollo Brown & Locksmith')
+    self.assertEqual(self.plugin._tmpl_releasegroupartist(guest),
+                     'Above & Beyond')
+
+  def test_other_sources_join_a_collaboration_like_musicbrainz(self):
+    db = FakeLibrary([
+        FakeLibraryAlbum('Tom MacDonald & Nova Rockafeller',
+                         ['Tom MacDonald', 'Nova Rockafeller']),
+        FakeLibraryAlbum('“Weird Al” Yankovic'),
+    ])
+    plus = FakeItem(1, 10, 'Tom MacDonald + Nova Rockafeller', 'A',
+                    albumartists=['Tom MacDonald', 'Nova Rockafeller'], db=db)
+    unknown = FakeItem(2, 11, 'AK, Sublab', 'B',
+                       albumartists=['AK', 'Sublab'], db=db)
+    quotes = FakeItem(3, 12, '"Weird Al" Yankovic', 'C', db=db)
+
+    self.assertEqual(self.plugin._tmpl_releasegroupartist(plus),
+                     'Tom MacDonald & Nova Rockafeller')
+    self.assertEqual(self.plugin._tmpl_releasegroupartist(unknown), 'AK & Sublab')
+    self.assertEqual(self.plugin._tmpl_releasegroupartist(quotes),
+                     '“Weird Al” Yankovic')
 
   def test_missing_album_id_does_not_leak_title(self):
     first = FakeItem(1, 10, 'Artist A', 'First Album.')
