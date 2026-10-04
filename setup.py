@@ -22,7 +22,7 @@ VERSION = '1.1.2'
 
 # What packages are required for this module to be executed?
 REQUIRED = [
-  'beets', 'musicbrainzngs',
+  'beets',
   # 'requests', 'maya', 'records',
 ]
 
