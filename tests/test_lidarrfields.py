@@ -95,7 +95,11 @@ class LidarrFieldsPluginTest(unittest.TestCase):
         FakeLibraryAlbum('Tom MacDonald & Nova Rockafeller',
                          ['Tom MacDonald', 'Nova Rockafeller']),
         FakeLibraryAlbum('“Weird Al” Yankovic'),
+        FakeLibraryAlbum('Courtney Bell & Royce da 5′9″',
+                         ['Courtney Bell', 'Royce da 5′9″']),
     ])
+    primes = FakeItem(4, 13, 'Courtney Bell, Royce Da 5\'9"', 'D',
+                      albumartists=['Courtney Bell', 'Royce Da 5\'9"'], db=db)
     plus = FakeItem(1, 10, 'Tom MacDonald + Nova Rockafeller', 'A',
                     albumartists=['Tom MacDonald', 'Nova Rockafeller'], db=db)
     unknown = FakeItem(2, 11, 'AK, Sublab', 'B',
@@ -107,6 +111,8 @@ class LidarrFieldsPluginTest(unittest.TestCase):
     self.assertEqual(self.plugin._tmpl_releasegroupartist(unknown), 'AK & Sublab')
     self.assertEqual(self.plugin._tmpl_releasegroupartist(quotes),
                      '“Weird Al” Yankovic')
+    self.assertEqual(self.plugin._tmpl_releasegroupartist(primes),
+                     'Courtney Bell & Royce da 5′9″')
 
   def test_missing_album_id_does_not_leak_title(self):
     first = FakeItem(1, 10, 'Artist A', 'First Album.')

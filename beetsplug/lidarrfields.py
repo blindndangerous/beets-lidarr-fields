@@ -19,13 +19,17 @@ from beets.plugins import BeetsPlugin
 # "A presents B" all belong to A.
 GUEST_RE = re.compile(r"\s+(?:feat\.?|ft\.?|featuring|with|presents)\s.*$", re.IGNORECASE)
 
-# Curly quotes and the Unicode hyphen fold to their plain ASCII forms.
-_FOLD = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"', "‐": "-"})
+# Curly quotes, prime marks ("5′9″") and the Unicode hyphen fold to plain ASCII.
+_FOLD = str.maketrans({
+    "‘": "'", "’": "'", "′": "'",
+    "“": '"', "”": '"', "″": '"',
+    "‐": "-",
+})
 
 
 def _fold(name):
     """Compare artist names ignoring case and quote or hyphen style."""
-    return unicodedata.normalize("NFKC", name).translate(_FOLD).casefold()
+    return unicodedata.normalize("NFKC", name.translate(_FOLD)).casefold()
 
 
 def _credited(credit, names):
